@@ -1,0 +1,842 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interactive Scorpion Skeleton</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: #050510;
+            overflow: hidden;
+            cursor: default;
+            font-family: 'Segoe UI', sans-serif;
+        }
+
+        canvas {
+            display: block;
+        }
+
+        #info {
+            position: absolute;
+            top: 18px;
+            width: 100%;
+            text-align: center;
+            color: rgba(255, 255, 255, 0.25);
+            font-size: 12px;
+            letter-spacing: 4px;
+            text-transform: uppercase;
+            pointer-events: none;
+            user-select: none;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="info">Interactive Scorpion Skeleton</div>
+    <canvas id="canvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+
+        let W, H;
+        let mouseX, mouseY;
+        let scorpionX, scorpionY;
+        let scorpionAngle = -Math.PI / 2;
+        let time = 0;
+        let speed = 0;
+
+        // Dot grid
+        const DOT_SPACING = 40;
+        let dots = [];
+        let dotCols, dotRows;
+
+        // Stars (space background)
+        const stars = [];
+        const NUM_STARS = 300;
+
+        // Chain segments for body + tail
+        const bodyChain = []; // prosoma center, meso segments, meta segments
+        const CHAIN_LEN = 14; // 1 head + 7 meso + 5 meta + 1 stinger
+
+        function resize() {
+            W = canvas.width = window.innerWidth;
+            H = canvas.height = window.innerHeight;
+            createDots();
+            createStars();
+        }
+
+        function createDots() {
+            dots = [];
+            dotCols = Math.ceil(W / DOT_SPACING) + 2;
+            dotRows = Math.ceil(H / DOT_SPACING) + 2;
+            for (let r = 0; r < dotRows; r++) {
+                for (let c = 0; c < dotCols; c++) {
+                    dots.push({
+                        x: c * DOT_SPACING + DOT_SPACING / 2,
+                        y: r * DOT_SPACING + DOT_SPACING / 2,
+                        brightness: 0,
+                        size: 1.2 + Math.random() * 0.5
+                    });
+                }
+            }
+        }
+
+        function createStars() {
+            stars.length = 0;
+            for (let i = 0; i < NUM_STARS; i++) {
+                stars.push({
+                    x: Math.random() * W,
+                    y: Math.random() * H,
+                    size: Math.random() * 1.5 + 0.3,
+                    twinkleSpeed: Math.random() * 2 + 0.5,
+                    twinkleOffset: Math.random() * Math.PI * 2,
+                    color: Math.random() > 0.8 ?
+                        `rgba(${150 + Math.random() * 105}, ${100 + Math.random() * 80}, ${200 + Math.random() * 55}` :
+                        `rgba(${200 + Math.random() * 55}, ${200 + Math.random() * 55}, ${220 + Math.random() * 35}`
+                });
+            }
+        }
+
+        window.addEventListener('resize', resize);
+
+        window.addEventListener('mousemove', (e) => {
+            mouseX = e.clientX;
+            mouseY = e.clientY;
+        });
+
+        window.addEventListener('touchmove', (e) => {
+            e.preventDefault();
+            mouseX = e.touches[0].clientX;
+            mouseY = e.touches[0].clientY;
+        }, { passive: false });
+
+        resize();
+
+        // Init positions
+        scorpionX = W / 2;
+        scorpionY = H / 2;
+        mouseX = W / 2;
+        mouseY = H / 2;
+
+        // Init chain
+        for (let i = 0; i < CHAIN_LEN; i++) {
+            bodyChain.push({ x: scorpionX, y: scorpionY, angle: scorpionAngle });
+        }
+
+        const legs = [];
+        for (let i = 0; i < 8; i++) {
+            legs.push({ x: scorpionX, y: scorpionY, targetX: scorpionX, targetY: scorpionY, startX: scorpionX, startY: scorpionY, step: 1, moving: false });
+        }
+
+        // ---- Utility Functions ----
+        function lerp(a, b, t) { return a + (b - a) * t; }
+        function lerpAngle(a, b, t) {
+            let d = b - a;
+            while (d > Math.PI) d -= Math.PI * 2;
+            while (d < -Math.PI) d += Math.PI * 2;
+            return a + d * t;
+        }
+        function dist(x1, y1, x2, y2) { return Math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2); }
+
+        function solveIK(x0, y0, x2, y2, l1, l2, flip) {
+            const dx = x2 - x0;
+            const dy = y2 - y0;
+            const d = Math.sqrt(dx * dx + dy * dy);
+            if (d >= l1 + l2) {
+                const a = Math.atan2(dy, dx);
+                return { x: x0 + Math.cos(a) * l1, y: y0 + Math.sin(a) * l1 };
+            }
+            const cosB = (l1 * l1 + d * d - l2 * l2) / (2 * l1 * d);
+            const B = Math.acos(Math.max(-1, Math.min(1, cosB)));
+            const baseAngle = Math.atan2(dy, dx);
+            const angle1 = flip ? baseAngle - B : baseAngle + B;
+            return { x: x0 + Math.cos(angle1) * l1, y: y0 + Math.sin(angle1) * l1 };
+        }
+
+
+
+
+
+
+
+
+
+
+
+        // ---- Drawing Helpers ---- Developed by - DESI AI ENGINEER
+        function setStroke(alpha = 0.9, width = 1.2) {
+            ctx.strokeStyle = `rgba(230, 240, 255, ${alpha})`;
+            ctx.lineWidth = width;
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+        }
+
+        function bone(x1, y1, x2, y2, w = 1.2) {
+            ctx.beginPath();
+            ctx.moveTo(x1, y1);
+            ctx.lineTo(x2, y2);
+            ctx.lineWidth = w;
+            ctx.stroke();
+        }
+
+        function joint(x, y, r = 2.5) {
+            ctx.beginPath();
+            ctx.arc(x, y, r, 0, Math.PI * 2);
+            ctx.lineWidth = 1;
+            ctx.stroke();
+        }
+
+
+
+
+
+
+
+
+
+
+
+
+        function filledJoint(x, y, r = 1.5) {
+            ctx.beginPath();
+            ctx.arc(x, y, r, 0, Math.PI * 2);
+            ctx.fillStyle = ctx.strokeStyle;
+            ctx.fill();
+        }
+
+        // ---- Space Background ----
+        function drawSpace() {
+            // Deep space gradient
+            const grad = ctx.createRadialGradient(W / 2, H / 2, 0, W / 2, H / 2, Math.max(W, H) * 0.7);
+            grad.addColorStop(0, '#0a0a1a');
+            grad.addColorStop(0.5, '#060612');
+            grad.addColorStop(1, '#020208');
+            ctx.fillStyle = grad;
+            ctx.fillRect(0, 0, W, H);
+
+            // Nebula hints
+            ctx.globalAlpha = 0.03;
+            const nebGrad = ctx.createRadialGradient(W * 0.3, H * 0.4, 0, W * 0.3, H * 0.4, 300);
+            nebGrad.addColorStop(0, '#ff2040');
+            nebGrad.addColorStop(1, 'transparent');
+            ctx.fillStyle = nebGrad;
+            ctx.fillRect(0, 0, W, H);
+
+            const nebGrad2 = ctx.createRadialGradient(W * 0.7, H * 0.6, 0, W * 0.7, H * 0.6, 250);
+            nebGrad2.addColorStop(0, '#4020ff');
+            nebGrad2.addColorStop(1, 'transparent');
+            ctx.fillStyle = nebGrad2;
+            ctx.fillRect(0, 0, W, H);
+            ctx.globalAlpha = 1;
+
+            // Stars
+            for (const s of stars) {
+                const twinkle = 0.3 + 0.7 * (0.5 + 0.5 * Math.sin(time * s.twinkleSpeed + s.twinkleOffset));
+                ctx.globalAlpha = twinkle * 0.6;
+                ctx.fillStyle = s.color + `, ${twinkle})`;
+                ctx.beginPath();
+                ctx.arc(s.x, s.y, s.size, 0, Math.PI * 2);
+                ctx.fill();
+            }
+            ctx.globalAlpha = 1;
+        }
+
+        // ---- Dot Grid ----
+        function drawDots() {
+            for (const dot of dots) {
+                // Decay brightness
+                dot.brightness *= 0.94;
+
+                const alpha = 0.06 + dot.brightness * 0.9;
+                const size = dot.size + dot.brightness * 2;
+
+                // Glow if bright enough
+                if (dot.brightness > 0.1) {
+                    ctx.shadowColor = `rgba(200, 230, 255, ${dot.brightness * 0.6})`;
+                    ctx.shadowBlur = 8 * dot.brightness;
+                } else {
+                    ctx.shadowBlur = 0;
+                }
+
+                ctx.beginPath();
+                ctx.arc(dot.x, dot.y, size, 0, Math.PI * 2);
+                ctx.fillStyle = `rgba(${150 + dot.brightness * 105}, ${180 + dot.brightness * 75}, ${200 + dot.brightness * 55}, ${alpha})`;
+                ctx.fill();
+            }
+            ctx.shadowBlur = 0;
+        }
+
+        function lightUpDotsNear(x, y, radius) {
+            for (const dot of dots) {
+                const d = dist(dot.x, dot.y, x, y);
+                if (d < radius) {
+                    const intensity = 1 - d / radius;
+                    dot.brightness = Math.max(dot.brightness, intensity);
+                }
+            }
+        }
+
+        // ---- Update Chain (IK-style follow) ----
+        function updateChain() {
+            const targetAngle = Math.atan2(mouseY - scorpionY, mouseX - scorpionX);
+            const d = dist(scorpionX, scorpionY, mouseX, mouseY);
+
+            // Increase speed and turn rate to make it walk faster
+            speed = lerp(speed, Math.min(d * 0.04, 8), 0.08);
+            scorpionAngle = lerpAngle(scorpionAngle, targetAngle, 0.08);
+            scorpionX += Math.cos(scorpionAngle) * speed;
+            scorpionY += Math.sin(scorpionAngle) * speed;
+
+            // Head follows scorpion
+            bodyChain[0].x = scorpionX;
+            bodyChain[0].y = scorpionY;
+            bodyChain[0].angle = scorpionAngle;
+
+            // Each subsequent segment follows the previous (inverse kinematics chain)
+            const segLengths = [12, 9, 9, 9, 9, 9, 9, 9, 14, 13, 12, 10, 8, 10];
+            for (let i = 1; i < CHAIN_LEN; i++) {
+                const prev = bodyChain[i - 1];
+                const seg = bodyChain[i];
+                const segLen = (segLengths[i] || 10) * getScale();
+
+                const dx = seg.x - prev.x;
+                const dy = seg.y - prev.y;
+                const angle = Math.atan2(dy, dx);
+
+                seg.x = prev.x + Math.cos(angle) * segLen;
+                seg.y = prev.y + Math.sin(angle) * segLen;
+                seg.angle = angle;
+            }
+
+            // Light up dots near body chain
+            for (const seg of bodyChain) {
+                lightUpDotsNear(seg.x, seg.y, 30);
+            }
+        }
+
+        function getScale() {
+            return Math.min(W, H) / 600;
+        }
+
+        // ---- Scorpion Parts ----
+
+        // Prosoma (head/cephalothorax shield)
+        function drawProsoma() {
+            const s = getScale();
+            const seg = bodyChain[0];
+            const cx = seg.x;
+            const cy = seg.y;
+            const a = seg.angle;
+
+            const cos = Math.cos(a);
+            const sin = Math.sin(a);
+            const pcos = Math.cos(a + Math.PI / 2);
+            const psin = Math.sin(a + Math.PI / 2);
+
+            const len = 28 * s;
+            const wFront = 18 * s;
+            const wBack = 26 * s;
+
+            // Shield shape (hexagonal)
+            const front = { x: cx + cos * len, y: cy + sin * len };
+            const fl = { x: cx + cos * len * 0.7 + pcos * wFront / 2, y: cy + sin * len * 0.7 + psin * wFront / 2 };
+            const fr = { x: cx + cos * len * 0.7 - pcos * wFront / 2, y: cy + sin * len * 0.7 - psin * wFront / 2 };
+            const ml = { x: cx + cos * len * 0.2 + pcos * wBack / 2, y: cy + sin * len * 0.2 + psin * wBack / 2 };
+            const mr = { x: cx + cos * len * 0.2 - pcos * wBack / 2, y: cy + sin * len * 0.2 - psin * wBack / 2 };
+            const bl = { x: cx - cos * 4 * s + pcos * wBack * 0.4, y: cy - sin * 4 * s + psin * wBack * 0.4 };
+            const br = { x: cx - cos * 4 * s - pcos * wBack * 0.4, y: cy - sin * 4 * s - psin * wBack * 0.4 };
+
+            setStroke(0.85, 1.3 * s);
+            ctx.beginPath();
+            ctx.moveTo(front.x, front.y);
+            ctx.lineTo(fl.x, fl.y);
+            ctx.lineTo(ml.x, ml.y);
+            ctx.lineTo(bl.x, bl.y);
+            ctx.lineTo(br.x, br.y);
+            ctx.lineTo(mr.x, mr.y);
+            ctx.lineTo(fr.x, fr.y);
+            ctx.closePath();
+            ctx.stroke();
+
+            // Central spine
+            setStroke(0.7, 1 * s);
+            bone(cx - cos * 4 * s, cy - sin * 4 * s, front.x, front.y, 1 * s);
+
+            // Lateral ridges
+            setStroke(0.4, 0.7 * s);
+            for (let i = 0; i < 5; i++) {
+                const t = 0.1 + i * 0.18;
+                const px = cx + cos * len * t;
+                const py = cy + sin * len * t;
+                const w = lerp(wBack, wFront, t) * 0.42;
+                bone(px, py, px + pcos * w, py + psin * w, 0.6 * s);
+                bone(px, py, px - pcos * w, py - psin * w, 0.6 * s);
+            }
+
+            // Eyes - median pair
+            setStroke(0.8, 0.8 * s);
+            for (let side = -1; side <= 1; side += 2) {
+                const ex = cx + cos * len * 0.55 + pcos * 3 * s * side;
+                const ey = cy + sin * len * 0.55 + psin * 3 * s * side;
+                ctx.beginPath();
+                ctx.arc(ex, ey, 2 * s, 0, Math.PI * 2);
+                ctx.stroke();
+                filledJoint(ex, ey, 0.8 * s);
+            }
+
+            // Chelicerae
+            setStroke(0.7, 1 * s);
+            const chelLen = 8 * s;
+            for (let side = -1; side <= 1; side += 2) {
+                const baseX = front.x + pcos * 2 * s * side;
+                const baseY = front.y + psin * 2 * s * side;
+                const tipAngle = a + 0.3 * side + Math.sin(time * 3) * 0.05;
+                const tipX = baseX + Math.cos(tipAngle) * chelLen;
+                const tipY = baseY + Math.sin(tipAngle) * chelLen;
+                bone(baseX, baseY, tipX, tipY, 0.9 * s);
+                // Fork
+                bone(tipX, tipY, tipX + Math.cos(tipAngle + 0.4 * side) * 3 * s,
+                    tipY + Math.sin(tipAngle + 0.4 * side) * 3 * s, 0.5 * s);
+                bone(tipX, tipY, tipX + Math.cos(tipAngle - 0.2 * side) * 4 * s,
+                    tipY + Math.sin(tipAngle - 0.2 * side) * 4 * s, 0.5 * s);
+            }
+        }
+
+        // Mesosoma (7 body segments behind prosoma)
+        function drawMesosoma() {
+            const s = getScale();
+            const widths = [26, 28, 30, 30, 28, 26, 22];
+
+            setStroke(0.8, 1.1 * s);
+
+            for (let i = 0; i < 7; i++) {
+                const seg = bodyChain[i + 1]; // segments 1-7
+                const prevSeg = bodyChain[i];
+                const a = seg.angle;
+                const pcos = Math.cos(a + Math.PI / 2);
+                const psin = Math.sin(a + Math.PI / 2);
+
+                const w = widths[i] * s;
+                const nextW = (i < 6 ? widths[i + 1] : 18) * s;
+
+                // Segment outline (trapezoid)
+                const fl = { x: prevSeg.x + pcos * w / 2, y: prevSeg.y + psin * w / 2 };
+                const fr = { x: prevSeg.x - pcos * w / 2, y: prevSeg.y - psin * w / 2 };
+
+                const nextPcos = Math.cos((bodyChain[i + 2] ? bodyChain[i + 2].angle : a) + Math.PI / 2);
+                const nextPsin = Math.sin((bodyChain[i + 2] ? bodyChain[i + 2].angle : a) + Math.PI / 2);
+                const bl = { x: seg.x + nextPcos * nextW / 2, y: seg.y + nextPsin * nextW / 2 };
+                const br = { x: seg.x - nextPcos * nextW / 2, y: seg.y - nextPsin * nextW / 2 };
+
+                setStroke(0.65, 1 * s);
+                ctx.beginPath();
+                ctx.moveTo(fl.x, fl.y);
+                ctx.lineTo(bl.x, bl.y);
+                ctx.lineTo(br.x, br.y);
+                ctx.lineTo(fr.x, fr.y);
+                ctx.closePath();
+                ctx.stroke();
+
+                // Spine
+                setStroke(0.5, 0.8 * s);
+                bone(prevSeg.x, prevSeg.y, seg.x, seg.y, 0.8 * s);
+
+                // Herringbone ribs
+                setStroke(0.35, 0.5 * s);
+                for (let r = 0; r < 3; r++) {
+                    const t = (r + 1) / 4;
+                    const rx = lerp(prevSeg.x, seg.x, t);
+                    const ry = lerp(prevSeg.y, seg.y, t);
+                    const rw = lerp(w, nextW, t) * 0.42;
+
+                    // Angled ribs (herringbone effect)
+                    const ribAngle = a + Math.PI / 2;
+                    const ribSlant = 0.35;
+                    bone(rx, ry,
+                        rx + Math.cos(ribAngle + ribSlant) * rw,
+                        ry + Math.sin(ribAngle + ribSlant) * rw, 0.5 * s);
+                    bone(rx, ry,
+                        rx + Math.cos(ribAngle + Math.PI - ribSlant) * rw,
+                        ry + Math.sin(ribAngle + Math.PI - ribSlant) * rw, 0.5 * s);
+                }
+
+                // Joint dot
+                setStroke(0.6, 0.8 * s);
+                joint(prevSeg.x, prevSeg.y, 2 * s);
+            }
+        }
+
+        // Metasoma (5 tail segments) + Telson (stinger)
+        function drawMetasoma() {
+            const s = getScale();
+            const widths = [18, 14, 11, 8, 6];
+
+            for (let i = 0; i < 5; i++) {
+                const segIdx = 8 + i;
+                const seg = bodyChain[segIdx];
+                const prevSeg = bodyChain[segIdx - 1];
+                const a = seg.angle;
+                const pcos = Math.cos(a + Math.PI / 2);
+                const psin = Math.sin(a + Math.PI / 2);
+
+                const w = widths[i] * s;
+                const nextW = (i < 4 ? widths[i + 1] : 4) * s;
+
+                // Squared-off segment
+                const fl = { x: prevSeg.x + pcos * w / 2, y: prevSeg.y + psin * w / 2 };
+                const fr = { x: prevSeg.x - pcos * w / 2, y: prevSeg.y - psin * w / 2 };
+
+                const nextA = (bodyChain[segIdx + 1] ? bodyChain[segIdx + 1].angle : a);
+                const npcos = Math.cos(nextA + Math.PI / 2);
+                const npsin = Math.sin(nextA + Math.PI / 2);
+                const bl = { x: seg.x + npcos * nextW / 2, y: seg.y + npsin * nextW / 2 };
+                const br = { x: seg.x - npcos * nextW / 2, y: seg.y - npsin * nextW / 2 };
+
+                setStroke(0.75, 1 * s);
+                ctx.beginPath();
+                ctx.moveTo(fl.x, fl.y);
+                ctx.lineTo(bl.x, bl.y);
+                ctx.lineTo(br.x, br.y);
+                ctx.lineTo(fr.x, fr.y);
+                ctx.closePath();
+                ctx.stroke();
+
+                // Spine
+                setStroke(0.5, 0.7 * s);
+                bone(prevSeg.x, prevSeg.y, seg.x, seg.y, 0.7 * s);
+
+                // Ribs (fewer, shorter)
+                setStroke(0.3, 0.4 * s);
+                const ribT = 0.5;
+                const rx = lerp(prevSeg.x, seg.x, ribT);
+                const ry = lerp(prevSeg.y, seg.y, ribT);
+                const rw = lerp(w, nextW, ribT) * 0.4;
+                bone(rx, ry, rx + pcos * rw, ry + psin * rw, 0.4 * s);
+                bone(rx, ry, rx - pcos * rw, ry - psin * rw, 0.4 * s);
+
+                // Joint
+                setStroke(0.6, 0.8 * s);
+                joint(prevSeg.x, prevSeg.y, 1.8 * s);
+
+                // Light up dots near tail
+                lightUpDotsNear(seg.x, seg.y, 25);
+            }
+
+            // Telson (stinger)
+            const lastTail = bodyChain[12];
+            const telson = bodyChain[13];
+            const ta = telson.angle;
+
+            // Vesicle (bulb)
+            setStroke(0.8, 1.1 * s);
+            ctx.beginPath();
+            ctx.save();
+            ctx.translate(telson.x, telson.y);
+            ctx.rotate(ta);
+            ctx.ellipse(0, 0, 7 * s, 5 * s, 0, 0, Math.PI * 2);
+            ctx.restore();
+            ctx.stroke();
+
+            // Internal structure
+            setStroke(0.4, 0.6 * s);
+            bone(lastTail.x, lastTail.y, telson.x, telson.y, 0.8 * s);
+            joint(lastTail.x, lastTail.y, 2 * s);
+
+            // Aculeus (curved stinger needle)
+            const stingerAngle = ta + 0.3;
+            const stingerLen = 16 * s;
+            const tipX = telson.x + Math.cos(stingerAngle) * stingerLen;
+            const tipY = telson.y + Math.sin(stingerAngle) * stingerLen;
+
+            setStroke(0.9, 1.5 * s);
+            ctx.beginPath();
+            ctx.moveTo(telson.x, telson.y);
+            // Curved stinger
+            const cpX = telson.x + Math.cos(stingerAngle + 0.2) * stingerLen * 0.6;
+            const cpY = telson.y + Math.sin(stingerAngle + 0.2) * stingerLen * 0.6;
+            ctx.quadraticCurveTo(cpX, cpY, tipX, tipY);
+            ctx.stroke();
+
+            // Sharp tip
+            setStroke(0.7, 0.5 * s);
+            filledJoint(tipX, tipY, 1.5 * s);
+
+            lightUpDotsNear(telson.x, telson.y, 35);
+        }
+
+        // Walking legs (4 pairs)
+        function drawLegs() {
+            const s = getScale();
+            const legAttachIndices = [0, 1, 2, 3]; // Attach to prosoma/first meso segments
+
+            for (let i = 0; i < 4; i++) {
+                const segIdx = legAttachIndices[i];
+                const seg = bodyChain[segIdx];
+                const a = seg.angle;
+
+                for (let side = -1; side <= 1; side += 2) {
+                    const legIdx = i * 2 + (side === 1 ? 0 : 1);
+                    const leg = legs[legIdx];
+
+                    const pcos = Math.cos(a + Math.PI / 2);
+                    const psin = Math.sin(a + Math.PI / 2);
+
+                    const baseX = seg.x + pcos * 10 * s * side;
+                    const baseY = seg.y + psin * 10 * s * side;
+
+                    // Ideal foot position
+                    const idealDist = 45 * s + i * 5 * s;
+                    const idealAngle = a + (Math.PI / 2) * side + (0.5 - i * 0.15) * side;
+                    const reachX = baseX + Math.cos(idealAngle) * idealDist + Math.cos(scorpionAngle) * speed * 12;
+                    const reachY = baseY + Math.sin(idealAngle) * idealDist + Math.sin(scorpionAngle) * speed * 12;
+
+                    const currentDist = dist(leg.x, leg.y, reachX, reachY);
+                    const triggerDist = 20 * s + (i * 5 * s);
+
+                    if (!leg.moving && currentDist > triggerDist) {
+                        let bestDot = null;
+                        let bestDist = Infinity;
+                        for (const dot of dots) {
+                            const dDot = dist(dot.x, dot.y, reachX, reachY);
+                            if (dDot < bestDist && dDot < 50 * s) {
+                                bestDist = dDot;
+                                bestDot = dot;
+                            }
+                        }
+
+                        leg.targetX = bestDot ? bestDot.x : reachX;
+                        leg.targetY = bestDot ? bestDot.y : reachY;
+
+                        leg.moving = true;
+                        leg.step = 0;
+                        leg.startX = leg.x;
+                        leg.startY = leg.y;
+                    }
+
+                    if (dist(baseX, baseY, leg.x, leg.y) > 150 * s) {
+                        leg.x = reachX;
+                        leg.y = reachY;
+                        leg.moving = false;
+                    }
+
+                    let footX = leg.x;
+                    let footY = leg.y;
+                    let lift = 0;
+
+                    if (leg.moving) {
+                        // Faster leg step to keep up with faster body
+                        leg.step += 0.14 + speed * 0.015;
+                        if (leg.step >= 1) {
+                            leg.step = 1;
+                            leg.moving = false;
+                            leg.x = leg.targetX;
+                            leg.y = leg.targetY;
+                        }
+                        footX = lerp(leg.startX, leg.targetX, leg.step);
+                        footY = lerp(leg.startY, leg.targetY, leg.step);
+                        lift = Math.sin(leg.step * Math.PI) * 15 * s;
+
+                        leg.x = footX;
+                        leg.y = footY;
+                    }
+
+                    const coxaAngle = a + (Math.PI / 2) * side + (0.4 - i * 0.15) * side;
+                    const coxaLen = 10 * s;
+                    const coxaX = baseX + Math.cos(coxaAngle) * coxaLen;
+                    const coxaY = baseY + Math.sin(coxaAngle) * coxaLen;
+
+                    const femurLen = 16 * s;
+                    const tibiaLen = 18 * s;
+                    const tarsusLen = 10 * s;
+
+                    const ikTargetX = footX;
+                    const ikTargetY = footY - lift;
+
+                    const ik = solveIK(coxaX, coxaY, ikTargetX, ikTargetY, femurLen, tibiaLen + tarsusLen, side === -1);
+                    const femurEndX = ik.x;
+                    const femurEndY = ik.y;
+
+                    const tibTarDx = ikTargetX - femurEndX;
+                    const tibTarDy = ikTargetY - femurEndY;
+                    const tibTarD = Math.max(0.001, Math.sqrt(tibTarDx * tibTarDx + tibTarDy * tibTarDy));
+                    let tibiaRatio = Math.min(1, tibiaLen / tibTarD);
+
+                    const tibiaEndX = femurEndX + tibTarDx * tibiaRatio;
+                    const tibiaEndY = femurEndY + tibTarDy * tibiaRatio;
+
+                    setStroke(0.6, 1 * s);
+                    bone(baseX, baseY, coxaX, coxaY, 1 * s);
+                    setStroke(0.55, 0.9 * s);
+                    bone(coxaX, coxaY, femurEndX, femurEndY, 0.9 * s);
+                    setStroke(0.5, 0.8 * s);
+                    bone(femurEndX, femurEndY, tibiaEndX, tibiaEndY, 0.8 * s);
+                    setStroke(0.45, 0.6 * s);
+                    bone(tibiaEndX, tibiaEndY, ikTargetX, ikTargetY, 0.6 * s);
+
+                    setStroke(0.5, 0.7 * s);
+                    joint(baseX, baseY, 1.5 * s);
+                    joint(coxaX, coxaY, 1.3 * s);
+                    joint(femurEndX, femurEndY, 1.2 * s);
+                    joint(tibiaEndX, tibiaEndY, 1 * s);
+                    filledJoint(ikTargetX, ikTargetY, 0.8 * s);
+
+                    if (!leg.moving) {
+                        lightUpDotsNear(footX, footY, 20);
+                    }
+                }
+            }
+        }
+
+        // Pedipalps (claws)
+        function drawPedipalps() {
+            const s = getScale();
+            const head = bodyChain[0];
+            const a = head.angle;
+            const d = dist(scorpionX, scorpionY, mouseX, mouseY);
+            const openAmt = Math.max(0.15, Math.min(0.55, 1.0 - d / 250));
+
+            for (let side = -1; side <= 1; side += 2) {
+                const pcos = Math.cos(a + Math.PI / 2);
+                const psin = Math.sin(a + Math.PI / 2);
+
+                // Base at front of prosoma
+                const baseX = head.x + Math.cos(a) * 22 * s + pcos * 10 * s * side;
+                const baseY = head.y + Math.sin(a) * 22 * s + psin * 10 * s * side;
+
+                const sway = Math.sin(time * 1.8 + (side === 1 ? 0 : Math.PI)) * 0.04;
+
+                // Trochanter
+                const trochAngle = a + 0.5 * side + sway;
+                const trochLen = 12 * s;
+                const trochX = baseX + Math.cos(trochAngle) * trochLen;
+                const trochY = baseY + Math.sin(trochAngle) * trochLen;
+
+                // Femur
+                const femAngle = a + 0.25 * side + sway;
+                const femLen = 20 * s;
+                const femX = trochX + Math.cos(femAngle) * femLen;
+                const femY = trochY + Math.sin(femAngle) * femLen;
+
+                // Patella
+                const patAngle = femAngle - 0.05 * side;
+                const patLen = 12 * s;
+                const patX = femX + Math.cos(patAngle) * patLen;
+                const patY = femY + Math.sin(patAngle) * patLen;
+
+                // Tibia (hand)
+                const tibAngle = patAngle + 0.08 * side;
+                const tibLen = 14 * s;
+                const tibX = patX + Math.cos(tibAngle) * tibLen;
+                const tibY = patY + Math.sin(tibAngle) * tibLen;
+
+                // Draw arm bones
+                setStroke(0.75, 1.3 * s);
+                bone(baseX, baseY, trochX, trochY, 1.3 * s);
+                bone(trochX, trochY, femX, femY, 1.2 * s);
+                setStroke(0.7, 1.1 * s);
+                bone(femX, femY, patX, patY, 1.1 * s);
+                bone(patX, patY, tibX, tibY, 1.1 * s);
+
+                // Joints
+                setStroke(0.65, 0.9 * s);
+                joint(baseX, baseY, 2.2 * s);
+                joint(trochX, trochY, 1.8 * s);
+                joint(femX, femY, 1.8 * s);
+                joint(patX, patY, 1.5 * s);
+
+                // Chela (hand/claw) - oval palm
+                setStroke(0.8, 1.2 * s);
+                ctx.beginPath();
+                ctx.save();
+                ctx.translate(tibX, tibY);
+                ctx.rotate(tibAngle);
+                ctx.ellipse(5 * s, 0, 8 * s, 5 * s, 0, 0, Math.PI * 2);
+                ctx.restore();
+                ctx.stroke();
+
+                // Fixed finger
+                const fingerBase = {
+                    x: tibX + Math.cos(tibAngle) * 12 * s,
+                    y: tibY + Math.sin(tibAngle) * 12 * s
+                };
+                const fixAngle = tibAngle - openAmt * 0.35 * side;
+                const fingerLen = 18 * s;
+                const fixTip = {
+                    x: fingerBase.x + Math.cos(fixAngle) * fingerLen,
+                    y: fingerBase.y + Math.sin(fixAngle) * fingerLen
+                };
+
+                // Movable finger
+                const movAngle = tibAngle + openAmt * 0.5 * side;
+                const movTip = {
+                    x: fingerBase.x + Math.cos(movAngle) * fingerLen,
+                    y: fingerBase.y + Math.sin(movAngle) * fingerLen
+                };
+
+                setStroke(0.8, 1 * s);
+                bone(fingerBase.x, fingerBase.y, fixTip.x, fixTip.y, 1 * s);
+                bone(fingerBase.x, fingerBase.y, movTip.x, movTip.y, 1 * s);
+
+                // Serrations (teeth on fingers)
+                setStroke(0.4, 0.4 * s);
+                for (let t = 0; t < 4; t++) {
+                    const tt = (t + 1) / 5;
+                    const fx = lerp(fingerBase.x, fixTip.x, tt);
+                    const fy = lerp(fingerBase.y, fixTip.y, tt);
+                    filledJoint(fx, fy, 0.7 * s);
+
+                    const mx = lerp(fingerBase.x, movTip.x, tt);
+                    const my = lerp(fingerBase.y, movTip.y, tt);
+                    filledJoint(mx, my, 0.7 * s);
+                }
+
+                // Tips
+                setStroke(0.6, 0.6 * s);
+                filledJoint(fixTip.x, fixTip.y, 1 * s);
+                filledJoint(movTip.x, movTip.y, 1 * s);
+
+                lightUpDotsNear(tibX, tibY, 25);
+                lightUpDotsNear(fixTip.x, fixTip.y, 15);
+                lightUpDotsNear(movTip.x, movTip.y, 15);
+            }
+        }
+
+        // ---- Main Render ----
+        function render() {
+            time += 0.016;
+            ctx.clearRect(0, 0, W, H);
+
+            drawSpace();
+            updateChain();
+            drawDots();
+
+            // Set shadow for skeleton glow
+            ctx.shadowColor = 'rgba(200, 230, 255, 0.4)';
+            ctx.shadowBlur = 6;
+
+            drawLegs();
+            drawProsoma();
+            drawMesosoma();
+            drawMetasoma();
+            drawPedipalps();
+
+            ctx.shadowBlur = 0;
+
+            // Removed custom cursor to allow default arrow
+
+            requestAnimationFrame(render);
+        }
+
+        render();
+    </script>
+</body>
+
+</html>
